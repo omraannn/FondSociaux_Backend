@@ -167,7 +167,6 @@ Configure the following environment variables in the `.env` file:
 -  Create a refund demand VRF PERM: POST /api/refunds/refunds-store-by-RH
 -  Update a refund demand by RH VRF PERM: POST /api/refunds/refund-update-by-rh/{id} {user_id} 
 -  Update payed refund demand status VRF PERMISSIONS: POST /api/refunds/refunds-update-payed
-
 -  Get All refund demands for auth user VRF PERM: GET /api/refunds-employee/refunds-auth
 -  Get last 5 refund demands for auth user VRF PERM: GET /api/refunds-employee/refunds-last-5
 -  Create a refund demand by employee VRF PERM: POST /api/refunds-employee/refund-store
