@@ -279,41 +279,6 @@ class UserController extends Controller
     /*|--------------------------------------------------------------------------
     | Fetch confirmed employees
     |-------------------------------------------------------------------------- */
-   /* public function fetchConfirmedEmployee()
-    {
-        try {
-            if (!auth()->user()->can('voir les employés')) {
-                return response()->json([
-                    'status' => '403',
-                    'message' => 'Vous n\'avez pas la permission de voir les employés.',
-                ], 403);
-            }
-
-            $confirmedUsers = User::where('status', 1)
-                ->where(function ($query) {
-                    $query->whereDoesntHave('roles', function ($query) {
-                        $query->where('name', 'RH');
-                    })->orWhereHas('roles', function ($query) {
-                        $query->havingRaw('COUNT(roles.id) > 1');
-                    });
-                })
-                ->with('roles')
-                ->get();
-
-            return response()->json([
-                "status" => "success",
-                "message" => "Confirmed users fetched successfully",
-                "confirmedUsers" => $confirmedUsers,
-            ]);
-        } catch (\Exception $e) {
-            return response()->json([
-                "status" => "error",
-                "message" => "Failed to fetch confirmed employees",
-                "error" => $e->getMessage()
-            ]);
-        }
-    }*/
-
     public function fetchConfirmedEmployee(Request $request): JsonResponse
     {
         try {
@@ -463,15 +428,14 @@ class UserController extends Controller
 
 
             $roles = json_decode($request->input('roles', '[]'), true);
-            if (!is_array($roles)) {
-                $roles = [];
-            }
-            $user->syncRoles($roles);
+            if (json_last_error() === JSON_ERROR_NONE && !empty($roles)) {
+                $user->syncRoles($roles);
 
-            if (count($roles) === 1 && in_array('GUEST', $roles)) {
-                $user->status = 0;
-            } else {
-                $user->status = 1;
+                if (count($roles) === 1 && in_array('GUEST', $roles)) {
+                    $user->status = 0;
+                } else {
+                    $user->status = 1;
+                }
             }
 
             if ($request->hasFile('front_image')) {
