@@ -116,56 +116,12 @@ class RefundController extends Controller
                 ], 403);
             }
 
-          // $refunds = Refund::with(['refundDocuments', 'user', 'typeFee'])->orderBy('created_at', 'desc')->get();
-
-            $query = Refund::with(['refundDocuments', 'user', 'typeFee']);
-
-            // Filtrer par type de frais
-            if ($request->has('type_fee_id') && $request->input('type_fee_id') !== null) {
-                $query->where('type_fee_id', $request->input('type_fee_id'));
-            }
-
-            // Filtrer par CIN de l'utilisateur
-            if ($request->has('cin') && $request->input('cin') !== null) {
-                $query->whereHas('user', function($q) use ($request) {
-                    $q->where('cin', $request->input('cin'));
-                });
-            }
-
-            // Filtrer par statut
-            if ($request->has('status') && $request->input('status') !== null) {
-                $query->where('status', $request->input('status'));
-            }
-
-            // Filtrer par paiement (payé ou non)
-            if ($request->has('payed') && $request->input('payed') !== null) {
-                $query->where('payed', $request->input('payed'));
-            }
-
-            // Filtrer par date (optionnel, par exemple pour une plage de dates)
-            if ($request->has('date_start') && $request->input('date_start') !== null) {
-                $query->where('created_at', '>=', $request->input('date_start'));
-            }
-
-            if ($request->has('date_end') && $request->input('date_end') !== null) {
-                $query->where('created_at', '<=', $request->input('date_end'));
-            }
-
-            // Gestion de la pagination
-            $perPage = $request->query('per_page', 10);
-            $refunds = $query->orderBy('created_at', 'desc')->paginate($perPage);
-
+            $refunds = Refund::with(['refundDocuments', 'user', 'typeFee'])->orderBy('created_at', 'desc')->get();
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'refunds fetched successfully',
-                'refunds' => $refunds->items(),
-                'pagination' => [
-                    'total' => $refunds->total(),
-                    'per_page' => $refunds->perPage(),
-                    'current_page' => $refunds->currentPage(),
-                    'last_page' => $refunds->lastPage(),
-                ],
+                'refunds' => $refunds,
             ]);
 
         } catch (\Exception $e) {
