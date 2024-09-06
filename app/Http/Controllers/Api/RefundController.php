@@ -105,7 +105,7 @@ class RefundController extends Controller
     /*|--------------------------------------------------------------------------
     |    Fetch all refund demands with permission
     |-------------------------------------------------------------------------- */
-    public function fetchRefundDemands(Request $request) : JsonResponse
+    public function fetchRefundDemands() : JsonResponse
     {
         try {
 
@@ -130,7 +130,6 @@ class RefundController extends Controller
                 'message' => 'Failed to fetch refunds',
                 'error' => $e->getMessage(),
             ], 500);
-
         }
     }
 
@@ -204,8 +203,6 @@ class RefundController extends Controller
     public function storeRefundForUser(StoreRefundByAdminRequest $request)
     {
         try {
-
-
 
             if (!auth()->user()->can('créer un remboursement pour un utilisateur')) {
                 return response()->json([
@@ -361,37 +358,27 @@ class RefundController extends Controller
     {
         try {
             DB::beginTransaction();
-
             $refund = Refund::findOrFail($id);
-
             if ($refund->status !== 'pending') {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Cette demande de remboursement ne peut pas être annulée car elle est déjà confirmée ou rejetée.',
                 ], 400);
             }
-
             $documents = RefundDocuments::where('refund_id', $refund->id)->get();
-
             foreach ($documents as $document) {
-
                 $fullPath = 'public/documents/' . $document->document_path;
-
                 if (Storage::exists($fullPath)) {
                     Storage::delete($fullPath);
                 }
-
                 $document->delete();
             }
-
             $refund->delete();
-
             DB::commit();
             return response()->json([
                 'status' => 'success',
                 'message' => 'La demande de remboursement a été annulée avec succès.',
             ]);
-
         } catch (\Exception $e) {
                 DB::rollBack();
                 return response()->json([
@@ -417,22 +404,15 @@ class RefundController extends Controller
                     'message' => 'Vous n\'avez pas la permission de supprimer un remboursement.',
                 ], 403);
             }
-
             $refund = Refund::findOrFail($id);
-
             $documents = RefundDocuments::where('refund_id', $refund->id)->get();
-
             foreach ($documents as $document) {
-
                 $fullPath = 'public/documents/' . $document->document_path;
-
                 if (Storage::exists($fullPath)) {
                     Storage::delete($fullPath);
                 }
-
                 $document->delete();
             }
-
             $refund->delete();
 
             DB::commit();
@@ -470,7 +450,16 @@ class RefundController extends Controller
             $refund = Refund::findOrFail($id);
             $typeFee = TypeFee::findOrFail($request->input('type_fee_id', $refund->type_fee_id));
 
-            $this->processRefundUpdate($refund, $typeFee, $request);
+            $refundUpdateSuccess = $this->processRefundUpdate($refund, $typeFee, $request, auth()->user()->getAuthIdentifier());
+
+            if (!$refundUpdateSuccess) {
+                DB::rollBack(); // Annuler la transaction
+                return response()->json([
+                    'status' => 'ceiling',
+                    'message' => 'Le plafond pour ce type de frais a été atteint avec des demandes en attente ou acceptées.',
+                ], 400);
+            }
+
 
             DB::commit();
             return response()->json([
@@ -513,7 +502,16 @@ class RefundController extends Controller
             $refund->user_id = $user_id;
             $refund->status = $request->status;
 
-            $this->processRefundUpdate($refund, $typeFee, $request);
+
+            $refundUpdateSuccess = $this->processRefundUpdate($refund, $typeFee, $request, $user_id);
+
+            if (!$refundUpdateSuccess) {
+                DB::rollBack(); // Annuler la transaction
+                return response()->json([
+                    'status' => 'ceiling',
+                    'message' => 'Le plafond pour ce type de frais a été atteint avec des demandes en attente ou acceptées.',
+                ], 400);
+            }
 
             DB::commit();
             return response()->json([
@@ -566,11 +564,11 @@ class RefundController extends Controller
     /*|--------------------------------------------------------------------------
     | Private functions
     |-------------------------------------------------------------------------- */
-    private function processRefundUpdate(Refund $refund, TypeFee $typeFee, Request $request)
+    private function processRefundUpdate(Refund $refund, TypeFee $typeFee, Request $request, $user_id)
     {
         // Totale des demandes acceptées ou en attente de l'utilisateur dans ce type de frais
-        $totalPendingOrAcceptedRefunds = Refund::where('user_id', $refund->user_id)
-            ->where('type_fee_id', $refund->type_fee_id)
+        $totalPendingOrAcceptedRefunds = Refund::where('user_id', $user_id)
+            ->where('type_fee_id', $request->type_fee_id)
             ->where('id', '!=', $refund->id) // Exclusion de la demande courante
             ->whereIn('status', ['pending', 'accepted']);
 
@@ -582,13 +580,25 @@ class RefundController extends Controller
         } elseif ($typeFee->ceiling_type === 'per_year') {
             $totalPendingOrAcceptedRefunds = $totalPendingOrAcceptedRefunds->whereYear('created_at', $currentYear);
         }
-        $totalPendingOrAcceptedRefunds = $totalPendingOrAcceptedRefunds->sum('reimbursement_amount');
-        $amountAvailable = ($typeFee->ceiling_type !== 'none' && $typeFee->ceiling !== null)
-            ? $typeFee->ceiling - $totalPendingOrAcceptedRefunds
-            : PHP_INT_MAX;
+
+
+        if ($typeFee->ceiling_type !== 'none') {
+            $totalPendingOrAcceptedRefunds = $totalPendingOrAcceptedRefunds->sum('reimbursement_amount');
+
+            // Si le plafond est atteint, retournez `false`
+            if ($typeFee->ceiling !== null && $totalPendingOrAcceptedRefunds >= $typeFee->ceiling) {
+                return false; // Indique que le plafond a été atteint
+            }
+
+            $amountAvailable = $typeFee->ceiling - $totalPendingOrAcceptedRefunds;
+        } else {
+            $amountAvailable = PHP_INT_MAX; // Aucun plafond, plafond illimité
+        }
+
 
         // Calcul du montant de remboursement mis à jour
         $currentRequestAmount = $this->calculateReimbursementAmount($typeFee, $request);
+
 
         if ($currentRequestAmount > $amountAvailable) {
             $currentRequestAmount = $amountAvailable;
@@ -599,6 +609,7 @@ class RefundController extends Controller
             'amount_spent',
             'expense_date',
             'quantity',
+            'HR_comment',
             'subject',
             'message',
             'type_fee_id',
@@ -641,6 +652,7 @@ class RefundController extends Controller
             }
         }
         $refund->save();
+        return true;
     }
 
 
